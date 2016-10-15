@@ -32,6 +32,8 @@ object FunCalculator {
 
   case class CState(mode: Mode, display: String)
 
+  type MTL[A] = State[CState, A]
+
   val empty: CState = CState(Start(0), "")
 
   def mode(i: Int): State[Mode, Unit] = State.modify {
@@ -54,17 +56,17 @@ object FunCalculator {
     case o: Op => mode(o)
   }
 
-  def write(s: Symbol)(implicit show: Show[Symbol]): State[CState, Unit] = State.modify {
+  def write[F[_]](s: Symbol)(implicit show: Show[Symbol], M: MonadState[F, CState]): F[Unit]  =M.modify {
     case c @ CState(_, d) => c.copy(display = d + s.show)
   }
 
-  val read: State[CState, String] = State.inspect(_.display)
+  def read[F[_]](implicit M: MonadState[F, CState]): F[String] = M.inspect(_.display)
 
   def interpret(s: Symbol)(implicit show: Show[Symbol]): State[CState, String] = {
     for {
-      _ <- write(s)
-      _ <- mode(s).transformS[CState](_.mode, (c, s) => c.copy(mode = s))
-      d <- read
+      _ <- write[MTL](s)
+      _ <- mode(s).transformS[CState](_.mode, (c, m) => c.copy(mode = m))
+      d <- read[MTL]
     } yield d
   }
 
@@ -75,11 +77,12 @@ object FunCalculator {
       (Start(r), r)
   }
 
-  def equals: State[CState, Unit] = eval.transformS[CState](_.mode, (c, s) => c.copy(mode = s)).flatMap { i =>
-    State.modify { s =>
-      s.copy(display = i.show)
+  def equals: State[CState, Unit] = 
+    eval.transformS[CState](_.mode, (c, s) => c.copy(mode = s)).flatMap { i =>
+      State.modify { s =>
+        s.copy(display = i.show)
+      }
     }
-  }
 
   val clear: State[CState, Unit] = State.set(empty)
 
@@ -109,11 +112,12 @@ class CalculatorDelegate extends Calculator {
     this
   }
 
-  def screen: String = run(FunCalculator.read)
+  def screen: String = run(FunCalculator.read[FunCalculator.MTL])
   def equals(): Calculator = {
     run(FunCalculator.equals)
     this
   }
+
   def clear(): Calculator = {
     run(FunCalculator.clear)
     this
