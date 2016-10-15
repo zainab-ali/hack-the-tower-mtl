@@ -5,34 +5,74 @@ case class Number(i: Int) extends Symbol
 sealed trait Op extends Symbol
 case object Plus extends Op
 case object Minus extends Op
-case object Equals extends Symbol
+case object Equals
 
 object FunCalculator {
 
   type Expr = List[Symbol]
   val Expr = List
 
-  case class State(expr: Expr, display: String)
+  val empty: Expr = Nil
 
-  val empty: State = ???
+  def push(s: Symbol)(st: Expr): Expr = s :: st
 
-  def push(s: Symbol)(st: State): State = ???
-  def calc(expr: Expr): Int = expr.foldLeft(0)({(prev, )}
-  def show(s: State): String = ???
+  private case class State(prev: Option[(Number, Op)], cur: Number)
+
+  def calc(expr: Expr): Int = {
+    val empty = State(None, Number(0))
+    val r = expr.foldRight(empty) { (s, st) =>
+      (st, s) match {
+        case (s @ State(_, c), n: Number) => s.copy(cur = Number(c.i * 10 + n.i))
+        case (State(None, p), o: Op) => State(Some(p -> o), Number(0))
+        case (State(Some((p,o)), c), n: Op) => State(Some((op(o, p, c), n)), Number(0))
+      }
+    }
+    r match {
+      case State(Some((p, o)), c) => op(o, p, c).i
+      case State(None, c) => c.i
+    }
+  }
+
+  def show(s: Expr): String = s.reverse.map(show).mkString
+
+  def show(s: Symbol): String = s match {
+    case Plus => "+"
+    case Minus => "-"
+    case Number(i) => i.toString()
+  }
+
+  def op(o: Op, p: Number, n: Number): Number = o match {
+    case Plus => Number(p.i + n.i)
+    case Minus => Number(p.i - n.i)
+  }
+
 }
 
 class CalculatorDelegate extends Calculator {
-  private var state:  FunCalculator.State = FunCalculator.empty
+  private var state:  FunCalculator.Expr = FunCalculator.empty
   def press(n: Int): Calculator = {
     state = FunCalculator.push(Number(n))(state)
     this
   }
 
-  def plus(): Calculator
-  def minus(): Calculator
-  def screen: String
-  def equals(): Calculator
-  def clear(): Calculator
+  def plus(): Calculator = {
+    state = FunCalculator.push(Plus)(state)
+    this
+  }
+  def minus(): Calculator = {
+    state = FunCalculator.push(Minus)(state)
+    this
+  }
+
+  def screen: String = FunCalculator.show(state)
+  def equals(): Calculator = {
+    state = FunCalculator.Expr(Number(FunCalculator.calc(state)))
+    this
+  }
+  def clear(): Calculator = {
+    state = FunCalculator.empty
+    this
+  }
 }
 
 trait Calculator {
