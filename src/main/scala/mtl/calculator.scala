@@ -77,7 +77,6 @@ final class Calculator { self =>
     noOperator()
     self
   }
-
 }
 
 
