@@ -1,12 +1,58 @@
 package mtl
 
+sealed trait Symbol
+case class Number(i: Int) extends Symbol
+sealed trait Op extends Symbol
+case object Plus extends Op
+case object Minus extends Op
+case object Equals extends Symbol
+
+object FunCalculator {
+
+  type Expr = List[Symbol]
+  val Expr = List
+
+  case class State(expr: Expr, display: String)
+
+  val empty: State = ???
+
+  def push(s: Symbol)(st: State): State = ???
+  def calc(expr: Expr): Int = expr.foldLeft(0)({(prev, )}
+  def show(s: State): String = ???
+}
+
+class CalculatorDelegate extends Calculator {
+  private var state:  FunCalculator.State = FunCalculator.empty
+  def press(n: Int): Calculator = {
+    state = FunCalculator.push(Number(n))(state)
+    this
+  }
+
+  def plus(): Calculator
+  def minus(): Calculator
+  def screen: String
+  def equals(): Calculator
+  def clear(): Calculator
+}
+
+trait Calculator {
+  def press(n: Int): Calculator
+  def plus(): Calculator
+  def minus(): Calculator
+  def screen: String
+  def equals(): Calculator
+  def clear(): Calculator
+}
+
+
+
 object Operator extends Enumeration {
   val Plus, Minus = Value
 }
 
 import scala.collection.mutable.StringBuilder
 
-final class Calculator { self =>
+final class MutableCalculator extends Calculator { self =>
 
   private var _current: Option[Int] = None
   private var _screen: StringBuilder = new StringBuilder
@@ -78,5 +124,3 @@ final class Calculator { self =>
     self
   }
 }
-
-
