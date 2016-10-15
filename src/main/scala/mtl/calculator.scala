@@ -1,5 +1,9 @@
 package mtl
 
+import cats._
+import cats.implicits._
+import cats.data._
+
 sealed trait Symbol
 case class Number(i: Int) extends Symbol
 sealed trait Op extends Symbol
@@ -7,70 +11,111 @@ case object Plus extends Op
 case object Minus extends Op
 case object Equals
 
+object Symbol {
+
+  implicit val show: Show[Symbol] = new Show[Symbol] {
+    def show(sym: Symbol): String = sym match {
+      case Number(i) => i.show
+      case Plus => "+"  
+      case Minus => "-"   
+    }
+  }
+}
+
+
 object FunCalculator {
 
-  type Expr = List[Symbol]
-  val Expr = List
+  sealed trait Mode
 
-  val empty: Expr = Nil
+  case class Start(n: Int) extends Mode
+  case class Accumulate(sum: Int, op: Op, n: Int) extends Mode
 
-  def push(s: Symbol)(st: Expr): Expr = s :: st
+  case class CState(mode: Mode, display: String)
 
-  private case class State(prev: Option[(Number, Op)], cur: Number)
+  val empty: CState = CState(Start(0), "")
 
-  def calc(expr: Expr): Int = {
-    val empty = State(None, Number(0))
-    val r = expr.foldRight(empty) { (s, st) =>
-      (st, s) match {
-        case (s @ State(_, c), n: Number) => s.copy(cur = Number(c.i * 10 + n.i))
-        case (State(None, p), o: Op) => State(Some(p -> o), Number(0))
-        case (State(Some((p,o)), c), n: Op) => State(Some((op(o, p, c), n)), Number(0))
-      }
+  def mode(i: Int): State[Mode, Unit] = State.modify {
+    case Start(n) => Start(n * 10 + i)
+    case Accumulate(sum, op, n) => Accumulate(sum, op, n * 10 + i)
+  }
+
+  def eval(op: Op, x: Int, y: Int): Int = op match {
+    case Plus => x + y
+    case Minus => x - y
+  }
+
+  def mode(o: Op): State[Mode, Unit] = State.modify {
+    case Start(n) => Accumulate(n, o, 0)
+    case Accumulate(sum, op, n) => Accumulate(eval(op, sum, n), o, 0)  
+  }
+
+  def mode(s: Symbol): State[Mode, Unit] = s match {
+    case Number(i) => mode(i)
+    case o: Op => mode(o)
+  }
+
+  def write(s: Symbol)(implicit show: Show[Symbol]): State[CState, Unit] = State.modify {
+    case c @ CState(_, d) => c.copy(display = d + s.show)
+  }
+
+  val read: State[CState, String] = State.inspect(_.display)
+
+  def interpret(s: Symbol)(implicit show: Show[Symbol]): State[CState, String] = {
+    for {
+      _ <- write(s)
+      _ <- mode(s).transformS[CState](_.mode, (c, s) => c.copy(mode = s))
+      d <- read
+    } yield d
+  }
+
+  def eval: State[Mode, Int] = State {
+    case s @ Start(n) => (s, n)
+    case Accumulate(sum, op, n) => 
+      val r = eval(op, sum, n)
+      (Start(r), r)
+  }
+
+  def equals: State[CState, Unit] = eval.transformS[CState](_.mode, (c, s) => c.copy(mode = s)).flatMap { i =>
+    State.modify { s =>
+      s.copy(display = i.show)
     }
-    r match {
-      case State(Some((p, o)), c) => op(o, p, c).i
-      case State(None, c) => c.i
-    }
   }
 
-  def show(s: Expr): String = s.reverse.map(show).mkString
-
-  def show(s: Symbol): String = s match {
-    case Plus => "+"
-    case Minus => "-"
-    case Number(i) => i.toString()
-  }
-
-  def op(o: Op, p: Number, n: Number): Number = o match {
-    case Plus => Number(p.i + n.i)
-    case Minus => Number(p.i - n.i)
-  }
+  val clear: State[CState, Unit] = State.set(empty)
 
 }
 
 class CalculatorDelegate extends Calculator {
-  private var state:  FunCalculator.Expr = FunCalculator.empty
+
+  private var state: FunCalculator.CState = FunCalculator.empty
+
+  def run[A](s: State[FunCalculator.CState, A]): A = {
+    val (state2, a) = s.run(state).value
+    state = state2
+    a
+  }
+
   def press(n: Int): Calculator = {
-    state = FunCalculator.push(Number(n))(state)
+    run(FunCalculator.interpret(Number(n)))
     this
   }
 
   def plus(): Calculator = {
-    state = FunCalculator.push(Plus)(state)
+    run(FunCalculator.interpret(Plus))
     this
   }
   def minus(): Calculator = {
-    state = FunCalculator.push(Minus)(state)
+    run(FunCalculator.interpret(Minus))
     this
   }
 
-  def screen: String = FunCalculator.show(state)
+  def screen: String = run(FunCalculator.read)
   def equals(): Calculator = {
-    state = FunCalculator.Expr(Number(FunCalculator.calc(state)))
+    run(FunCalculator.equals)
     this
   }
   def clear(): Calculator = {
-    state = FunCalculator.empty
+    run(FunCalculator.clear)
     this
   }
 }
