@@ -119,15 +119,17 @@ final class Calculator { self =>
       clear()
     }
     try {
-    if(s == "+") {
-      plus()
-    } else if(s == "-") {
-      minus()
-    } else if(s == "=") {
-      equals()
-    } else {
-      press(Integer.parseInt(s))
-    }
+      if(s == "+") {
+        plus()
+      } else if(s == "-") {
+        minus()
+      } else if(s == "=") {
+        equals()
+      } else if(s == "C") {
+        clear()
+      } else {
+        press(Integer.parseInt(s))
+      }
     } catch {
       case _: Throwable => error()
     }
