@@ -17,7 +17,7 @@ object FunCalculator {
   val empty: State = ???
 
   def push(s: Symbol)(st: State): State = ???
-  def calc(expr: Expr): Int = expr.foldLeft(0)({(prev, )}
+  def calc(expr: Expr): Int = ???
   def show(s: State): String = ???
 }
 

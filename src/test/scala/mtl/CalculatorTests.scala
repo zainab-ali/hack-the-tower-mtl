@@ -63,5 +63,4 @@ class CalculatorTests extends FunSpec with Matchers {
     val r = c.press("2").press("+").press("+").screen
     r shouldBe "ERROR"
   }
->>>>>>> master
 }
