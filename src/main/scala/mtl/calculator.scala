@@ -54,73 +54,130 @@ import scala.collection.mutable.StringBuilder
 
 final class MutableCalculator extends Calculator { self =>
 
+  private var _previous: Option[Int] = None
+  private var _currentOperator: Operator.Value = null
   private var _current: Option[Int] = None
   private var _screen: StringBuilder = new StringBuilder
-  private var _currentOperator: Operator.Value = null
 
   def screen: String = {
     _screen.toString()
   }
 
-  def noOperator() = {
+  private def noOperator() = {
     _currentOperator = null
   }
 
-  def setCurrent(n: Int): Unit = {
+  private def setCurrent(n: Int): Unit = {
     _current = Some(n)
   }
 
-  def appendScreen(n: Int): Unit = {
+  private def resetCurrent(): Unit = {
+    _current = None
+  }
+
+  private def resetCalc(): Unit = {
+    noOperator()
+    resetCurrent()
+    resetCurrent()
+  }
+
+  private def setPrevious(n: Int): Unit = {
+    _previous = Some(n)
+  }
+
+  private def resetPrevious(): Unit = {
+    _previous = None
+  }
+
+  private def appendScreen(n: Int): Unit = {
     _screen.append(n)
   }
 
-  def appendScreen(s: String): Unit = {
+  private def appendScreen(s: String): Unit = {
     _screen.append(s)
   }
 
-  def press(n: Int): Calculator = {
-    if(_current.isEmpty && _currentOperator == null) {
-      setCurrent(n)
-    } else if(_current.isDefined && _currentOperator == Operator.Plus) {
-      setCurrent(_current.get + n)
-      noOperator()
-    } else if(_current.isDefined && _currentOperator == Operator.Minus) {
-      setCurrent(_current.get - n)
-      noOperator()
-    } else if(_current.isEmpty && _currentOperator == Operator.Plus) {
-      setCurrent(n)
-      noOperator()
-    } else if(_current.isEmpty && _currentOperator == Operator.Minus) {
-      setCurrent(-n)
-      noOperator()
-    } else {
+  private def press(n: Int): Calculator = {
+    if(_current.nonEmpty) {
       setCurrent(_current.get * 10 + n)
+    } else {
+      setCurrent(n)
     }
     appendScreen(n)
     self
   }
 
-  def plus(): Calculator = {
+  private def calculate(): Unit = {
+    if(_previous.nonEmpty && _current.nonEmpty && _currentOperator != null) {
+      if(_currentOperator == Operator.Plus) {
+        setPrevious(_previous.get + _current.get)
+        resetCurrent()
+      } else if(_currentOperator == Operator.Minus) {
+        setPrevious(_previous.get - _current.get)
+        resetCurrent()
+      }
+    } else if(_previous.isEmpty && _current.nonEmpty && _currentOperator == null) {
+      setPrevious(_current.get)
+      resetCurrent()
+    } else if(_previous.isEmpty && _current.isEmpty && _currentOperator == null) {
+      setPrevious(0)
+      resetCurrent()
+    } else if(_current.isEmpty && _currentOperator != null) {
+      throw new IllegalArgumentException("Sequential operators typed")
+    }
+  }
+
+  private def plus(): Calculator = {
     appendScreen("+")
+    calculate()
     _currentOperator = Operator.Plus
     self
   }
 
-  def minus(): Calculator = {
+  private def minus(): Calculator = {
     appendScreen("-")
+    calculate()
     _currentOperator = Operator.Minus
     self
   }
 
-  def equals(): Calculator = {
-    _screen = new StringBuilder(_current.get.toString)
+  private def equals(): Calculator = {
+    calculate()
+    _screen = new StringBuilder(_previous.get.toString)
     noOperator()
     self
   }
 
-  def clear(): Calculator = {
+  private def clear(): Calculator = {
     _screen = new StringBuilder()
-    noOperator()
+    resetCalc()
     self
+  }
+
+  private def error(): Calculator = {
+    clear()
+    appendScreen("ERROR")
+    self
+  }
+
+  def press(s: String): Calculator = {
+    if(screen == "ERROR") {
+      clear()
+    }
+    try {
+      if(s == "+") {
+        plus()
+      } else if(s == "-") {
+        minus()
+      } else if(s == "=") {
+        equals()
+      } else if(s == "C") {
+        clear()
+      } else {
+        press(Integer.parseInt(s))
+      }
+    } catch {
+      case _: Throwable => error()
+    }
   }
 }
