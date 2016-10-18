@@ -23,11 +23,11 @@ class FriendlyCalculator extends Calculator {
 
 object FunCalculator {
 
-  type MStack[A] = StateT[FunCalculatorError Either ?, CalcState, A]
+  type MStack[A] = StateT[CalculatorError Either ?, CalcState, A]
 
   val empty: CalcState = CalcState(Num(0), "")
 
-  private def parse[F[_]](s: String)(implicit M: MonadError[F, FunCalculatorError]): F[Symbol] = s match {
+  private def parse[F[_]](s: String)(implicit M: MonadError[F, CalculatorError]): F[Symbol] = s match {
     case "+" => M.pure(Plus)
     case "-" => M.pure(Minus)
     case "=" => M.pure(Equals)
@@ -44,7 +44,7 @@ object FunCalculator {
       case NumOpNum(p, o, c) => NumOpNum(p, o, c * 10 + n)
     }))
   
-  private def op[F[_]](o: Op)(implicit ME: MonadError[F, FunCalculatorError], 
+  private def op[F[_]](o: Op)(implicit ME: MonadError[F, CalculatorError], 
     MS: MonadState[F, CalcState]): F[Unit] =
     MS.flatMap(MS.get) { s =>
       s.expr match {
@@ -54,7 +54,7 @@ object FunCalculator {
       }
     }
 
-  private def calc[F[_]](s: ExprSymbol)(implicit ME: MonadError[F, FunCalculatorError], 
+  private def calc[F[_]](s: ExprSymbol)(implicit ME: MonadError[F, CalculatorError], 
     MS: MonadState[F, CalcState]): F[Unit] = s match {
     case Number(i) => num[F](i)
     case o: Op => op[F](o)
@@ -73,12 +73,9 @@ object FunCalculator {
 
   private def equals[F[_]](implicit M: MonadState[F, CalcState]): F[Unit] = for {
     v <- value[F]
-    _ <- write[F](v.show)
+    _ <- M.modify(_.copy(display = s))
     _ <- M.modify(_.copy(expr = Num(v)))
   } yield ()
-
-  private def write[F[_]](s: String)(implicit M: MonadState[F, CalcState]): F[Unit] = 
-    M.modify(_.copy(display = s))
 
   private def append[F[_]](s: String)(implicit M: MonadState[F, CalcState]): F[Unit] = 
     M.modify(c => c.copy(display = c.display + s))
@@ -118,6 +115,6 @@ case class Num(n: Int) extends Expr
 case class NumOp(prev: Int, op: Op) extends Expr
 case class NumOpNum(prev: Int, op: Op, cur: Int) extends Expr
 
-sealed trait FunCalculatorError extends Throwable
-case class ParseError(exception: Throwable) extends FunCalculatorError
-case class SequentialOpError(previous: Op, next: Op) extends FunCalculatorError
+sealed trait CalculatorError extends Throwable
+case class ParseError(exception: Throwable) extends CalculatorError
+case class SequentialOpError(previous: Op, next: Op) extends CalculatorError
