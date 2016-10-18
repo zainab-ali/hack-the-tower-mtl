@@ -73,7 +73,7 @@ object FunCalculator {
 
   private def equals[F[_]](implicit M: MonadState[F, CalcState]): F[Unit] = for {
     v <- value[F]
-    _ <- M.modify(_.copy(display = s))
+    _ <- M.modify(_.copy(display = v.show))
     _ <- M.modify(_.copy(expr = Num(v)))
   } yield ()
 
