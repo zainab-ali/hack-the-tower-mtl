@@ -27,15 +27,18 @@ object FunCalculator {
 
   val empty: CalcState = CalcState(Num(0), "")
 
+  private def liftEither[E <: CalculatorError, A](e: E Either A): MStack[A] = 
+    StateT.lift(e.leftWiden[CalculatorError])
+
+  private def liftState[A](s: State[CalcState, A]): MStack[A] = 
+    s.transformF(a => Right(a.value))
+
   private def parse(s: String): ParseError Either Symbol = s match {
     case "+" => Right(Plus)
     case "-" => Right(Minus)
     case "=" => Right(Equals)
     case o => Either.catchNonFatal(Number(Integer.parseInt(o))).leftMap(ParseError)
   }
-
-  private def liftEither[E <: CalculatorError, A](e: E Either A): MStack[A] = 
-    StateT.lift(e.leftWiden[CalculatorError])
 
   private def num(n: Int): State[CalcState, Unit] = 
     State.modify(s => s.copy(expr = s.expr match {
@@ -52,9 +55,6 @@ object FunCalculator {
       case NumOpNum(p, po, n) => liftState(State.set(s.copy(expr = NumOp(binop(p, po, n), o))))
       }
     } yield ()
-
-  private def liftState[A](s: State[CalcState, A]): MStack[A] = 
-    s.transformF(a => Right(a.value))
 
   private def calc(s: ExprSymbol): MStack[Unit] = s match {
     case Number(i) => liftState(num(i))
