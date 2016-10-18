@@ -5,7 +5,7 @@ import cats.data._
 import cats.implicits._
 
 class FriendlyCalculator extends Calculator {
-  private var state: FunCalculator.CalcState = FunCalculator.empty
+  private var state: CalcState = FunCalculator.empty
   private var display: String = state.display
 
   def press(s: String): Calculator = {
@@ -23,37 +23,41 @@ class FriendlyCalculator extends Calculator {
 
 object FunCalculator {
 
-  case class CalcState(expr: Expr, display: String)
-
-  sealed trait Expr
-  case class Num(n: Int) extends Expr
-  case class NumOp(prev: Int, op: Op) extends Expr
-  case class NumOpNum(prev: Int, op: Op, cur: Int) extends Expr
+  type MStack[A] = StateT[FunCalculatorError Either ?, CalcState, A]
 
   val empty: CalcState = CalcState(Num(0), "")
 
-  private def parse(s: String): ParseError Either Symbol = s match {
-    case "+" => Right(Plus)
-    case "-" => Right(Minus)
-    case "=" => Right(Equals)
-    case o => Either.catchNonFatal(Number(Integer.parseInt(o))).leftMap(ParseError)
+  private def parse[F[_]](s: String)(implicit M: MonadError[F, FunCalculatorError]): F[Symbol] = s match {
+    case "+" => M.pure(Plus)
+    case "-" => M.pure(Minus)
+    case "=" => M.pure(Equals)
+    case o => Either.catchNonFatal(Number(Integer.parseInt(o))) match {
+      case Left(e) => M.raiseError(ParseError(e))
+      case Right(n) => M.pure(n)
+    }
   }
 
-  private def calcExpr(s: ExprSymbol): StateT[FunCalculatorError Either ?, Expr, Unit] = StateT.modifyF { e =>
-    def num(n: Int): Expr = e match {
+  private def num[F[_]](n: Int)(implicit M: MonadState[F, CalcState]): F[Unit] = 
+    M.modify(s => s.copy(expr = s.expr match {
       case Num(c) => Num(c * 10 + n)
       case NumOp(p, o) => NumOpNum(p, o, n)
       case NumOpNum(p, o, c) => NumOpNum(p, o, c * 10 + n)
+    }))
+  
+  private def op[F[_]](o: Op)(implicit ME: MonadError[F, FunCalculatorError], 
+    MS: MonadState[F, CalcState]): F[Unit] =
+    MS.flatMap(MS.get) { s =>
+      s.expr match {
+        case Num(n) => MS.set(s.copy(expr = NumOp(n, o)))
+        case NumOp(n, p) => ME.raiseError(SequentialOpError(p, o))
+        case NumOpNum(p, po, n) => MS.set(s.copy(expr = NumOp(binop(p, po, n), o)))
+      }
     }
-    def op(o: Op): FunCalculatorError Either Expr = e match {
-      case Num(n) => Right(NumOp(n, o))
-      case NumOp(n, p) => Left(SequentialOpError(p, o))
-      case NumOpNum(p, po, n) => Right(NumOp(binop(p, po, n), o))
-    }
-    s match {
-      case Number(n) => Right(num(n))
-      case o: Op => op(o)
-    }
+
+  private def calc[F[_]](s: ExprSymbol)(implicit ME: MonadError[F, FunCalculatorError], 
+    MS: MonadState[F, CalcState]): F[Unit] = s match {
+    case Number(i) => num[F](i)
+    case o: Op => op[F](o)
   }
 
   private def binop(p: Int, o: Op, n: Int): Int = o match {
@@ -61,36 +65,32 @@ object FunCalculator {
     case Minus => p - n
   }
 
-  private def value: State[CalcState, Int] = State.inspect(_.expr match {
+  private def value[F[_]](implicit M: MonadState[F, CalcState]): F[Int] = M.inspect(_.expr match {
     case Num(i) => i
     case NumOp(p, o) => binop(p, o, 0)
     case NumOpNum(p, o, n) => binop(p, o, n)
   })
 
-  private def equals: State[CalcState, Unit] = for {
-    v <- value
-    _ <- write(v.show)
-    _ <- State.modify[CalcState](_.copy(expr = Num(v)))
+  private def equals[F[_]](implicit M: MonadState[F, CalcState]): F[Unit] = for {
+    v <- value[F]
+    _ <- write[F](v.show)
+    _ <- M.modify(_.copy(expr = Num(v)))
   } yield ()
 
-  private def calc(s: ExprSymbol): StateT[FunCalculatorError Either ?, CalcState, Unit] = {
-    calcExpr(s).transformS[CalcState](_.expr, (s, e) => s.copy(expr = e)) >>
-    append(s.show).transformF(s => Right(s.value))
-  }
+  private def write[F[_]](s: String)(implicit M: MonadState[F, CalcState]): F[Unit] = 
+    M.modify(_.copy(display = s))
 
-  private def read: State[CalcState, String] = State.inspect(_.display)
-  private def write(s: String): State[CalcState, Unit] = State.modify(_.copy(display = s))
-  private def append(s: String): State[CalcState, Unit] = State.modify(c => c.copy(display = c.display + s))
+  private def append[F[_]](s: String)(implicit M: MonadState[F, CalcState]): F[Unit] = 
+    M.modify(c => c.copy(display = c.display + s))
 
-  def press(s: String): StateT[FunCalculatorError Either ?, CalcState, Unit] = {
+  def press(s: String): MStack[Unit] = 
     for {
-      sym <- StateT.lift(parse(s).leftWiden[FunCalculatorError])
+      sym <- parse[MStack](s)
       _ <- sym match {
-        case Equals => equals.transformF[FunCalculatorError Either ?, Unit](s => Right(s.value))
-        case o: ExprSymbol => calc(o)
+        case Equals => equals[MStack]
+        case o: ExprSymbol => calc[MStack](o) >> append[MStack](o.show)
       }
     } yield ()
-  }
 }
 
 sealed trait Symbol
@@ -110,6 +110,13 @@ object ExprSymbol {
     }
   }
 }
+
+case class CalcState(expr: Expr, display: String)
+
+sealed trait Expr
+case class Num(n: Int) extends Expr
+case class NumOp(prev: Int, op: Op) extends Expr
+case class NumOpNum(prev: Int, op: Op, cur: Int) extends Expr
 
 sealed trait FunCalculatorError extends Throwable
 case class ParseError(exception: Throwable) extends FunCalculatorError
