@@ -2,9 +2,9 @@ package mtl
 
 import org.scalatest._
 
-trait CalculatorTests extends FunSpec with Matchers {
+class CalculatorTests extends FunSpec with Matchers {
 
-  def calculator: Calculator
+  def calculator: Calculator = new Calculator()
 
   it("displays 5 after 3+2=") {
     val c = calculator
@@ -63,12 +63,4 @@ trait CalculatorTests extends FunSpec with Matchers {
     val r = c.press("2").press("+").press("+").screen
     r shouldBe "ERROR"
   }
-}
-
-class EvilCalculatorTests extends CalculatorTests {
-  def calculator: Calculator = new EvilCalculator()
-}
-
-class FriendlyCalculatorTests extends CalculatorTests {
-  def calculator: Calculator = new FriendlyCalculator()
 }
