@@ -9,7 +9,7 @@ class FriendlyCalculator extends Calculator {
   private var display: String = state.display
 
   def press(s: String): Calculator = {
-    FunCalculator.press(s).runS(state) match {
+    FunCalculator.press(s)(state) match {
       case Left(_) => 
         state = FunCalculator.empty
         display = "ERROR"
@@ -23,15 +23,7 @@ class FriendlyCalculator extends Calculator {
 
 object FunCalculator {
 
-  type MStack[A] = StateT[CalculatorError Either ?, CalcState, A]
-
   val empty: CalcState = CalcState(Num(0), "")
-
-  private def liftEither[E <: CalculatorError, A](e: E Either A): MStack[A] = 
-    StateT.lift(e.leftWiden[CalculatorError])
-
-  private def liftState[A](s: State[CalcState, A]): MStack[A] = 
-    s.transformF(a => Right(a.value))
 
   private def parse(s: String): ParseError Either Symbol = s match {
     case "+" => Right(Plus)
@@ -40,25 +32,23 @@ object FunCalculator {
     case o => Either.catchNonFatal(Number(Integer.parseInt(o))).leftMap(ParseError)
   }
 
-  private def num(n: Int): State[CalcState, Unit] = 
-    State.modify(s => s.copy(expr = s.expr match {
+  private def num(n: Int)(s: CalcState): CalcState = 
+    s.copy(expr = s.expr match {
       case Num(c) => Num(c * 10 + n)
       case NumOp(p, o) => NumOpNum(p, o, n)
       case NumOpNum(p, o, c) => NumOpNum(p, o, c * 10 + n)
-    }))
+    })
   
-  private def op(o: Op): MStack[Unit] = for {
-    s <- liftState(State.get)
-    _ <- s.expr match {
-      case Num(n) =>  liftState(State.set(s.copy(expr = NumOp(n, o))))
-      case NumOp(n, p) => liftEither(Left(SequentialOpError(p, o)))
-      case NumOpNum(p, po, n) => liftState(State.set(s.copy(expr = NumOp(binop(p, po, n), o))))
-      }
-    } yield ()
+  private def op(o: Op)(s: CalcState): CalculatorError Either CalcState =
+    s.expr match {
+      case Num(n) =>  Right(s.copy(expr = NumOp(n, o)))
+      case NumOp(n, p) => Left(SequentialOpError(p, o))
+      case NumOpNum(p, po, n) => Right(s.copy(expr = NumOp(binop(p, po, n), o)))
+    }
 
-  private def calc(s: ExprSymbol): MStack[Unit] = s match {
-    case Number(i) => liftState(num(i))
-    case o: Op => op(o)
+  private def calc(s: ExprSymbol)(cs: CalcState): CalculatorError Either CalcState = s match {
+    case Number(i) => Right(num(i)(cs))
+    case o: Op => op(o)(cs)
   }
 
   private def binop(p: Int, o: Op, n: Int): Int = o match {
@@ -66,29 +56,27 @@ object FunCalculator {
     case Minus => p - n
   }
 
-  private def value: State[CalcState, Int] = State.inspect(_.expr match {
+  private def value(s: CalcState): Int = s.expr match {
     case Num(i) => i
     case NumOp(p, o) => binop(p, o, 0)
     case NumOpNum(p, o, n) => binop(p, o, n)
-  })
+  }
 
-  private def equals: State[CalcState, Unit] = for {
-    v <- value
-    _ <- State.modify[CalcState](_.copy(display = v.show))
-    _ <- State.modify[CalcState](_.copy(expr = Num(v)))
-  } yield ()
+  private def equals(s: CalcState): CalcState = {
+    val v = value(s)
+    CalcState(Num(v), v.show)
+  }
 
-  private def append(s: String): State[CalcState, Unit] = 
-    State.modify(c => c.copy(display = c.display + s))
+  private def append(s: String)(c: CalcState): CalcState = 
+    c.copy(display = c.display + s)
 
-  def press(s: String): MStack[Unit] = 
-    for {
-      sym <- liftEither(parse(s))
-      _ <- sym match {
-        case Equals => liftState(equals)
-        case o: ExprSymbol => calc(o) >> liftState(append(o.show))
-      }
-    } yield ()
+  def press(s: String)(c: CalcState): CalculatorError Either CalcState = {
+    val sym = parse(s).leftWiden[CalculatorError]
+    sym.flatMap {
+      case Equals => Right(equals(c))
+      case o: ExprSymbol => calc(o)(c).map(append(o.show))
+    }
+  }
 }
 
 sealed trait Symbol
